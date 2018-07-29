@@ -3,6 +3,8 @@
 #include <vector>
 #include <cstdint>
 #include <cassert>
+#include <cmath>
+#include <functional>
 using namespace std;
 
 union bmpheader {
@@ -28,6 +30,7 @@ union bmpheader {
     uint32_t  biCirImportant;
   } data;
 };
+using coeff_t = vector<vector<int8_t>>;
 
 struct YCbCr {
   static constexpr int scale = 1<<8;
@@ -54,6 +57,38 @@ public:
   }
 };
 
+// cos((2*x+1)*u*PI/16)
+struct costable {
+  constexpr static double PI = 3.141592653589793;
+  double v[8][8];
+  constexpr costable() : v() {
+    for (int j = 0; j < 8; j++)
+    for (int i = 0; i < 8; i++) {
+      v[j][i] = cos((2*i+1)*j*PI/16);
+    }
+  }
+};
+
+constexpr uint8_t qtable_y[8][8] = {
+  {4, 4, 5, 6, 7, 8, 8, 8},
+  {4, 5, 6, 7, 8, 8, 8, 8},
+  {5, 6, 7, 8, 8, 8, 8, 8},
+  {6, 7, 8, 8, 8, 8, 8, 8},
+  {7, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8}
+};
+constexpr uint8_t qtable_c[8][8] = {
+  {4, 5, 6, 7, 8, 8, 8, 8},
+  {5, 6, 7, 8, 8, 8, 8, 8},
+  {6, 7, 8, 8, 8, 8, 8, 8},
+  {7, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8},
+  {8, 8, 8, 8, 8, 8, 8, 8}
+};
 
 bool load_header(uint8_t const* bmp, const int len, bmpheader& bh) {
   constexpr int len_head = sizeof(bmpheader::raw);
@@ -68,16 +103,45 @@ bool load_header(uint8_t const* bmp, const int len, bmpheader& bh) {
     bh.data.bcBitCount == 24 &&
     bh.data.biCompression == 0;
 }
-int padnum(int b) {
-  return b%4 ? 4-b%4 : 0;
+static inline int padnum(int b, int align) {
+  return b%align ? align-b%align : 0;
+}
+
+template<typename fsxy, typename fq>
+void dct_q(coeff_t& coeff, fsxy sxy, fq q) {
+  constexpr auto   costbl = costable();
+  constexpr double isqrt2 = 1/sqrt(2);
+  for (int j = 0; j < coeff.size();    j += 8)
+  for (int i = 0; i < coeff[0].size(); i += 8) {
+    cout << "(" << j << "," << i << ")\n";
+    for (int v = 0; v < 8; v++)
+    for (int u = 0; u < 8; u++) {
+      int a = 0;
+      for (int y = 0; y < 8; y++)
+      for (int x = 0; x < 8; x++) {
+        a += sxy(j+y, i+x) *
+          costbl.v[u][x] *
+          costbl.v[v][y];
+      }
+      double ce =
+        0.25 * a * (
+        (u && v) ? 1.0    :
+        (u || v) ? isqrt2 : 0.5);
+      ce /= (1<<q(v,u));
+      assert(-128<=ce && ce<128);
+      coeff[j+v][i+u] = ce;
+    }
+  }
 }
 
 int main(int argc, char const* argv[]) {
+  ios::sync_with_stdio(false);
   if(argc!=2) {
     cout << "usage: bmp2jpeg filename" << endl;
     return 1;
   }
 
+  // Read bmp
   ifstream bmps(argv[1], ios::in | ios::binary | ios::ate);
   if(!bmps.is_open()) {
     cout << "failed to read " << argv[1] << endl;
@@ -105,8 +169,37 @@ int main(int argc, char const* argv[]) {
       plane[y].push_back(YCbCr(line + 3*x));
     }
     const int w3 = bh.data.bcWidth*3;
-    line = line + w3 + padnum(w3);
+    line = line + w3 + padnum(w3,4);
   }
+
+  // Align plane
+  const int ypad = padnum(plane.size(), 16);
+  const int xpad = padnum(plane[0].size(), 16);
+  for (auto&& l : plane) {
+    for (int i = 0; i < xpad; i++) l.push_back(l.back());
+  }
+  for (int i = 0; i < ypad; i++) {
+    plane.push_back(plane.back());
+  }
+
+  // DCT and Quantize
+  const int
+    y_height= plane.size(),
+    y_width = plane[0].size(),
+    c_height= plane.size()/2,
+    c_width = plane[0].size()/2;
+  coeff_t
+    ycoeff(y_height, vector<int8_t>(y_width)),
+    cbcoeff(c_height, vector<int8_t>(c_width)),
+    crcoeff(c_height, vector<int8_t>(c_width));
+  auto sxy_y  = [&](int y,int x) {return plane[y][x].Y;};
+  auto sxy_cb = [&](int y,int x) {return plane[y][x].Cb;};
+  auto sxy_cr = [&](int y,int x) {return plane[y][x].Cr;};
+  auto q_y    = [&](int y,int x) {return qtable_y[y][x];};
+  auto q_c    = [&](int y,int x) {return qtable_c[y][x];};
+  dct_q( ycoeff, sxy_y,  q_y);
+  //dct_q(cbcoeff, sxy_cb, q_c);
+  //dct_q(crcoeff, sxy_cr, q_c);
 
   ofstream test("/tmp/po.bmp", ios::out | ios::binary | ios::trunc);
   if(!test.is_open()) {cout << "dame" << endl; return 3;}
@@ -114,14 +207,17 @@ int main(int argc, char const* argv[]) {
 
   for (int y = 0; y < bh.data.bcHeight; y++) {
     for (int x = 0; x < bh.data.bcWidth; x++) {
-      const char d = plane[y][x].Cb;
+      int8_t dd = ycoeff[y][x];
+      if(dd<0 && y && x) dd = -dd; // ac component
+      char d = dd;
       test.write(&d, 1);
       test.write(&d, 1);
       test.write(&d, 1);
     }
     const int w3 = bh.data.bcWidth*3;
-    test.write("\0\0\0", padnum(w3));
+    test.write("\0\0\0", padnum(w3,4));
   }
+
 
 
   return 0;
