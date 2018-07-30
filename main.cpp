@@ -199,6 +199,7 @@ void dct_q(coeff_t& coeff, fsxy sxy, fq q) {
     cout << "(" << j << "," << i << ")\n";
     for (int v = 0; v < 8; v++)
     for (int u = 0; u < 8; u++) {
+      if(q(v,u) >= 8) {coeff[j+v][i+u] = 0; break;}
       int a = 0;
       for (int y = 0; y < 8; y++)
       for (int x = 0; x < 8; x++) {
