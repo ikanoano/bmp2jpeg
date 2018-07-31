@@ -57,6 +57,24 @@ public:
   }
 };
 
+struct zigzag {
+  int walk[64][2];
+  constexpr zigzag() : walk() {
+    int y=0, x=0;
+    int rightup=1;
+    for (int i = 0; i < 64; i++) {
+      walk[i][0] = y;
+      walk[i][1] = x;
+      x += rightup ?  1 : -1;
+      y += rightup ? -1 :  1;
+      if(y>7) {y = 7; rightup = 1; x += 2;}
+      if(x>7) {x = 7; rightup = 0; y += 2;}
+      if(y<0) {y = 0; rightup = 0;}
+      if(x<0) {x = 0; rightup = 1;}
+    }
+  }
+};
+
 // cos((2*x+1)*u*PI/16)
 struct costable {
   constexpr static double PI = 3.141592653589793;
@@ -89,16 +107,9 @@ constexpr uint8_t qtable_c[8][8] = {
   {8, 8, 8, 8, 8, 8, 8, 8},
   {8, 8, 8, 8, 8, 8, 8, 8}
 };
-constexpr uint8_t zigzag[][2] = { // saiaku
-  {0, 1}, {1, 0},
-  {2, 0}, {1, 1}, {0, 2},
-  {0, 3}, {1, 2}, {2, 1}, {3, 0},
-  {4, 0}, {3, 1}, {2, 2}, {1, 3}, {0, 4},
-  {0, 5}
-};
 
 constexpr uint16_t dc_y_hufftable[][2] = {
-//{len, code}
+//{code len, code}
   { 2, 0x0000},
   { 3, 0x0002},
   { 3, 0x0003},
@@ -114,7 +125,7 @@ constexpr uint16_t dc_y_hufftable[][2] = {
 };
 
 constexpr uint16_t dc_c_hufftable[][2] = {
-//{len, code}
+//{code len, code}
   { 2, 0x0000},
   { 2, 0x0001},
   { 2, 0x0002},
@@ -130,7 +141,7 @@ constexpr uint16_t dc_c_hufftable[][2] = {
 };
 
 constexpr uint16_t ac_y_hufftable[][11][2] = {
-//{len, code}
+//{code len, code}
 //v Run length    > Code length
   {{ 4,0x000a}, { 2,0x0000}, { 2,0x0001}, { 3,0x0004}, { 4,0x000b}, { 5,0x001a}, { 7,0x0078}, { 8,0x00f8}, {10,0x03f6}, {16,0xff82}, {16,0xff83}},
   {{ 0,0xdead}, { 4,0x000c}, { 5,0x001b}, { 7,0x0079}, { 9,0x01f6}, {11,0x07f6}, {16,0xff84}, {16,0xff85}, {16,0xff86}, {16,0xff87}, {16,0xff88}},
@@ -151,7 +162,7 @@ constexpr uint16_t ac_y_hufftable[][11][2] = {
 };
 
 constexpr uint16_t ac_c_hufftable[][11][2] = {
-//{len, code}
+//{code len, code}
 //v Run length    > Code length
   {{ 2,0x0000}, { 2,0x0001}, { 3,0x0004}, { 4,0x000a}, { 5,0x0018}, { 5,0x0019}, { 6,0x0038}, { 7,0x0078}, { 9,0x01f4}, {10,0x03f6}, {12,0x0ff4}},
   {{ 0,0xdead}, { 4,0x000b}, { 6,0x0039}, { 8,0x00f6}, { 9,0x01f5}, {11,0x07f6}, {12,0x0ff5}, {16,0xff88}, {16,0xff89}, {16,0xff8a}, {16,0xff8b}},
@@ -171,6 +182,51 @@ constexpr uint16_t ac_c_hufftable[][11][2] = {
   {{10,0x03fa}, {15,0x7fc3}, {16,0xfff6}, {16,0xfff7}, {16,0xfff8}, {16,0xfff9}, {16,0xfffa}, {16,0xfffb}, {16,0xfffc}, {16,0xfffd}, {16,0xfffe}}
 };
 
+
+struct jpegheader {
+  static constexpr uint8_t SOI[] = {0xff, 0xd8};
+  static constexpr uint8_t DQT[] = {0xff, 0xdb, 0x00, 0x84};
+  static constexpr uint8_t SOF1[] = {0xff, 0xc0, 0x00, 0x11, 0x08};
+  static constexpr uint8_t SOF2[] = {
+    0x03,
+    0x01, 0x11, 0x00,
+    0x02, 0x11, 0x01,
+    0x03, 0x11, 0x01
+  };
+  static constexpr uint8_t SOS[] = {
+    0xff, 0xda,
+    0x00, 0x0c, 0x03,
+    0x01, 0x00, 0x02, 0x11, 0x03, 0x11,
+    0x00, 0x3f, 0x00
+  };
+  static constexpr uint8_t EOI[] = {0xff, 0xD9};
+  int   len = 0;
+  char  h[4096];
+  jpegheader(uint16_t y, uint16_t x) : h() {
+    int acc = 0;
+    const auto zz = zigzag().walk;
+    for (int i = 0; i < sizeof(SOI); i++) h[acc++] = SOI[i];
+    for (int i = 0; i < sizeof(DQT); i++) h[acc++] = DQT[i];
+    h[acc++] = 0;
+    for (int i = 0; i < 64; i++) {
+      uint16_t q = 1 << qtable_y[zz[i][0]][zz[i][1]];
+      h[acc++] = q>255 ? 255 : q;
+    }
+    h[acc++] = 1;
+    for (int i = 0; i < 64; i++) {
+      uint16_t q = 1 << qtable_c[zz[i][0]][zz[i][1]];
+      h[acc++] = q>255 ? 255 : q;
+    }
+    for (int i = 0; i < sizeof(SOF1); i++) h[acc++] = SOF1[i];
+    h[acc++] = y >> 8;
+    h[acc++] = y & 0xff;
+    h[acc++] = x >> 8;
+    h[acc++] = x & 0xff;
+    for (int i = 0; i < sizeof(SOF2); i++) h[acc++] = SOF2[i];
+    for (int i = 0; i < sizeof(SOS); i++) h[acc++] = SOS[i];
+    len = acc;
+  }
+};
 
 
 bool load_header(uint8_t const* bmp, const int len, bmpheader& bh) {
@@ -217,6 +273,86 @@ void dct_q(coeff_t& coeff, fsxy sxy, fq q) {
     }
   }
 }
+
+class bitstream {
+private:
+  constexpr static char zero = 0;
+  int       len_acc = 0;
+  uint8_t   acc = 0;
+  ofstream& o;
+public:
+  bitstream(ofstream& out) : o(out) {}
+  void append(const int len, const uint32_t val) {
+    assert(0<=len && len<=32 && len_acc<8);
+    if(len <= 0) return;
+    int rshift = len - (8 - len_acc);
+    uint8_t valmask = ~(0xFF<<(8-len_acc));
+    if(rshift>=0) acc |= valmask & (val>> rshift);
+    else          acc |= valmask & (val<<-rshift);
+    if(len+len_acc < 8) {
+      len_acc += len;
+      return;
+    }
+    // write and continue
+    o.write((char*)&acc, 1);
+    if(acc==0xFF) o.write(&zero, 1);
+    acc = 0;
+    int len_wrote_val = 8 - len_acc;
+    len_acc = 0;
+    append(len-len_wrote_val, val);
+  }
+  void append(const uint16_t hufftable[2]) {
+    append(hufftable[0], hufftable[1]);
+  }
+  void finish() { append(8-len_acc, ~0); }
+};
+
+struct mcu_encoder {
+private:
+  uint8_t last_dc = 0;
+  int bitlen (const int16_t v) {
+    for (int i = 0; i < 15; i++) {
+      if(-(1<<i)<v && v<(1<<i)) return  i;
+    }
+    assert(0 && "invalid bitlen");
+  }
+  const uint16_t (&dc_hufftable)[12][2];
+  const uint16_t (&ac_hufftable)[16][11][2];
+public:
+  mcu_encoder(bool is_y) :
+    dc_hufftable(is_y ? dc_y_hufftable : dc_c_hufftable),
+    ac_hufftable(is_y ? ac_y_hufftable : ac_c_hufftable) {}
+  void encode (
+      bitstream& bs,
+      const coeff_t& coeff, int offy, int offx) {
+    // dc
+    const uint8_t   dc = coeff[offy][offx];
+    const int16_t   ddc = dc - last_dc;
+    const int dbl = bitlen(ddc);
+    bs.append(dc_hufftable[dbl]);
+    bs.append(dbl, ddc<0 ? ddc-1 : ddc);
+    last_dc = dc;
+
+    // ac, no ZRL
+    int runlen = 0;
+    const auto zz = zigzag().walk;
+    for (int i = 1; i < 64 && runlen<16; i++) {
+      const auto idx = zz[i];
+      const int8_t ac = coeff[offy+idx[0]][offx+idx[1]];
+      if(ac==0) { runlen++; continue; }
+      // ac is nonzero
+      const int abl = bitlen(ac);
+      assert(abl>0);
+      bs.append(ac_hufftable[runlen][dbl]);
+      bs.append(abl, ac<0 ? ac-1 : ac);
+      runlen = 0;
+    }
+    if(runlen>0) {
+      // add EOB
+      bs.append(ac_hufftable[0][0]);
+    }
+  }
+};
 
 int main(int argc, char const* argv[]) {
   ios::sync_with_stdio(false);
@@ -270,8 +406,8 @@ int main(int argc, char const* argv[]) {
   const int
     y_height= plane.size(),
     y_width = plane[0].size(),
-    c_height= plane.size()/2,
-    c_width = plane[0].size()/2;
+    c_height= plane.size(),
+    c_width = plane[0].size();
   coeff_t
     ycoeff(y_height, vector<int8_t>(y_width)),
     cbcoeff(c_height, vector<int8_t>(c_width)),
@@ -282,8 +418,8 @@ int main(int argc, char const* argv[]) {
   auto q_y    = [&](int y,int x) {return qtable_y[y][x];};
   auto q_c    = [&](int y,int x) {return qtable_c[y][x];};
   dct_q( ycoeff, sxy_y,  q_y);
-  //dct_q(cbcoeff, sxy_cb, q_c);
-  //dct_q(crcoeff, sxy_cr, q_c);
+  dct_q(cbcoeff, sxy_cb, q_c);
+  dct_q(crcoeff, sxy_cr, q_c);
 
   ofstream test("/tmp/po.bmp", ios::out | ios::binary | ios::trunc);
   if(!test.is_open()) {cout << "dame" << endl; return 3;}
@@ -301,6 +437,28 @@ int main(int argc, char const* argv[]) {
     const int w3 = bh.data.bcWidth*3;
     test.write("\0\0\0", padnum(w3,4));
   }
+
+  // Output jpeg header
+  ofstream jpeg("/tmp/po.jpg", ios::out | ios::binary | ios::trunc);
+  if(!jpeg.is_open()) {cout << "dame" << endl; return 4;}
+  const auto header = jpegheader(bh.data.bcHeight, bh.data.bcWidth);
+  jpeg.write(header.h, header.len);
+
+  // huffman encoding
+  auto bs = bitstream(jpeg);
+  auto y_enc  = mcu_encoder(true);
+  auto cb_enc = mcu_encoder(false);
+  auto cr_enc = mcu_encoder(false);
+  for (int j = 0; j < ycoeff.size();    j += 8)
+  for (int i = 0; i < ycoeff[0].size(); i += 8) {
+    y_enc.encode (bs, ycoeff, j, i);
+    cb_enc.encode(bs, cbcoeff, j, i);
+    cr_enc.encode(bs, crcoeff, j, i);
+  }
+  bs.finish();
+
+  // Output jpeg footer
+  jpeg.write((char*)header.EOI, sizeof(header.EOI));
 
 
 
