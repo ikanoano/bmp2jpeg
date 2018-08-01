@@ -30,7 +30,7 @@ union bmpheader {
     uint32_t  biCirImportant;
   } data;
 };
-using coeff_t = vector<vector<int8_t>>;
+using coeff_t = vector<vector<int16_t>>;
 
 struct YCbCr {
   static constexpr int scale = 1<<8;
@@ -88,23 +88,23 @@ struct costable {
 
 constexpr uint8_t qtable_y[8][8] = {
   {3, 3, 3, 4, 4, 5, 6, 6},
-  {3, 3, 4, 4, 5, 6, 6, 7},
-  {3, 4, 4, 5, 6, 6, 7, 7},
-  {4, 4, 5, 6, 6, 7, 7, 8},
-  {4, 5, 6, 6, 7, 7, 8, 8},
-  {5, 6, 6, 7, 7, 8, 8, 8},
-  {6, 6, 7, 7, 8, 8, 8, 8},
-  {6, 7, 7, 8, 8, 8, 8, 8}
+  {3, 3, 4, 4, 5, 6, 6, 6},
+  {3, 4, 4, 5, 6, 6, 6, 6},
+  {4, 4, 5, 6, 6, 6, 6, 6},
+  {4, 5, 6, 6, 6, 6, 6, 6},
+  {5, 6, 6, 6, 6, 6, 6, 7},
+  {6, 6, 6, 6, 6, 6, 7, 7},
+  {6, 6, 6, 6, 6, 7, 7, 7}
 };
 constexpr uint8_t qtable_c[8][8] = {
-  {4, 4, 5, 6, 7, 8, 8, 8},
-  {4, 5, 6, 7, 8, 8, 8, 8},
-  {5, 6, 7, 8, 8, 8, 8, 8},
-  {6, 7, 8, 8, 8, 8, 8, 8},
-  {7, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8}
+  {3, 4, 4, 5, 6, 6, 6, 6},
+  {4, 4, 5, 6, 6, 6, 6, 7},
+  {4, 5, 6, 6, 6, 6, 7, 7},
+  {5, 6, 6, 6, 6, 7, 7, 7},
+  {6, 6, 6, 6, 7, 7, 7, 7},
+  {6, 6, 6, 7, 7, 7, 7, 7},
+  {6, 6, 7, 7, 7, 7, 7, 7},
+  {6, 7, 7, 7, 7, 7, 7, 7}
 };
 
 constexpr uint16_t dc_y_hufftable[][2] = {
@@ -292,10 +292,10 @@ void dct_q(coeff_t& coeff, fsxy sxy, const uint8_t (&q)[8][8]) {
     for (int v = 0; v < 8; v++)
     for (int u = 0; u < 8; u++) {
       if(q[v][u] >= 8) {coeff[j+v][i+u] = 0; break;}
-      int a = 0;
+      int16_t a = 0;
       for (int y = 0; y < 8; y++)
       for (int x = 0; x < 8; x++) {
-        a += (sxy(j+y, i+x)-128) *
+        a += ((int16_t)sxy(j+y, i+x)-128) *
           costbl.v[u][x] *
           costbl.v[v][y];
       }
@@ -345,7 +345,7 @@ public:
 
 struct mcu_encoder {
 private:
-  int8_t last_dc = 0;
+  int16_t last_dc = 0;
   const uint16_t (&dc_hufftable)[12][2];
   const uint16_t (&ac_hufftable)[16][11][2];
 public:
@@ -362,7 +362,7 @@ public:
       bitstream& bs,
       const coeff_t& coeff, int offy, int offx) {
     // dc
-    const int8_t    dc = coeff[offy][offx];
+    const int16_t   dc  = coeff[offy][offx];
     const int16_t   ddc = dc - last_dc;
     const int dbl = bitlen(ddc);
     bs.append(dc_hufftable[dbl]);
@@ -373,14 +373,15 @@ public:
     int runlen = 0;
     const auto zz = zigzag().walk;
     for (int i = 1; i < 64; i++) {
-      const auto idx = zz[i];
-      const int8_t ac = coeff[offy+idx[0]][offx+idx[1]];
+      const auto    idx = zz[i];
+      const int16_t ac  = coeff[offy+idx[0]][offx+idx[1]];
       if(ac==0) { runlen++; continue; }
       // ac is nonzero
       const int abl = bitlen(ac);
       assert(abl>0);
       while(runlen>15) {
         // insert ZRL
+        printf("Z");
         bs.append(ac_hufftable[15][0]);
         runlen -= 16;
       }
@@ -468,9 +469,9 @@ int main(int argc, char const* argv[]) {
     height= plane.size(),
     width = plane[0].size();
   coeff_t
-    ycoeff(height, vector<int8_t>(width)),
-    cbcoeff(height, vector<int8_t>(width)),
-    crcoeff(height, vector<int8_t>(width));
+    ycoeff(height, vector<int16_t>(width)),
+    cbcoeff(height, vector<int16_t>(width)),
+    crcoeff(height, vector<int16_t>(width));
   auto sxy_y  = [&](int y,int x) {return plane[y][x].Y;};
   auto sxy_cb = [&](int y,int x) {return plane[y][x].Cb;};
   auto sxy_cr = [&](int y,int x) {return plane[y][x].Cr;};
