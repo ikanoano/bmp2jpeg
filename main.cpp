@@ -53,7 +53,6 @@ public:
       );
       *trg[i] = tmp / scale;
     }
-    //cout << cnv[0][0] << endl << cnv[0][1] << endl << cnv[1][0] << endl;
   }
 };
 
@@ -290,7 +289,6 @@ void dct_q(coeff_t& coeff, fsxy sxy, const uint8_t (&q)[8][8]) {
   constexpr double isqrt2 = 1/sqrt(2);
   for (int j = 0; j < coeff.size();    j += 8)
   for (int i = 0; i < coeff[0].size(); i += 8) {
-    //cout << "(" << j << "," << i << ")\n";
     for (int v = 0; v < 8; v++)
     for (int u = 0; u < 8; u++) {
       if(q[v][u] >= 8) {coeff[j+v][i+u] = 0; break;}
@@ -377,7 +375,6 @@ public:
     for (int i = 1; i < 64; i++) {
       const auto idx = zz[i];
       const int8_t ac = coeff[offy+idx[0]][offx+idx[1]];
-      printf("%2x,", coeff[offy+idx[0]][offx+idx[1]]);
       if(ac==0) { runlen++; continue; }
       // ac is nonzero
       const int abl = bitlen(ac);
@@ -391,7 +388,6 @@ public:
       bs.append(abl, ac<0 ? ac-1 : ac);
       runlen = 0;
     }
-    printf("\n");
     if(!coeff[7][7]) {
       // add EOB
       bs.append(ac_hufftable[0][0]);
@@ -465,6 +461,8 @@ int main(int argc, char const* argv[]) {
     plane.push_back(plane.back());
   }
 
+  cout << dec << plane.size() << 'x' << dec << plane[0].size() << endl;
+
   // DCT and Quantize
   const int
     height= plane.size(),
@@ -493,7 +491,6 @@ int main(int argc, char const* argv[]) {
   auto cr_enc = mcu_encoder(false);
   for (int j = 0; j < ycoeff.size();    j += 8)
   for (int i = 0; i < ycoeff[0].size(); i += 8) {
-    printf("[%6d-%6d, %6d-%6d]\n", j, j+7, i, i+7);
     y_enc.encode (bs, ycoeff, j, i);
     cb_enc.encode(bs, cbcoeff, j, i);
     cr_enc.encode(bs, crcoeff, j, i);
