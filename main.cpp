@@ -389,7 +389,7 @@ public:
       bs.append(abl, ac<0 ? ac-1 : ac);
       runlen = 0;
     }
-    if(!coeff[7][7]) {
+    if(runlen) {
       // add EOB
       bs.append(ac_hufftable[0][0]);
     }
