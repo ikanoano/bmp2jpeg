@@ -446,7 +446,7 @@ int main(int argc, char const* argv[]) {
   const uint8_t* line = bmp+bh.data.bfOffBits;
   for (int y = 0; y < bh.data.bcHeight; y+=2) {
     for (int x = 0; x < bh.data.bcWidth; x+=2) {
-      plane[y/2].push_back(YCbCr(line + 3*x));
+      plane[(bh.data.bcHeight-y-1)/2].push_back(YCbCr(line + 3*x));
     }
     const int w3 = bh.data.bcWidth*3*2;
     line = line + w3 + padnum(w3,4);
@@ -492,7 +492,7 @@ int main(int argc, char const* argv[]) {
   auto cr_enc = mcu_encoder(false);
   for (int j = 0; j < ycoeff.size();    j += 8)
   for (int i = 0; i < ycoeff[0].size(); i += 8) {
-    y_enc.encode (bs, ycoeff, j, i, 37);
+    y_enc.encode (bs, ycoeff, j, i, 49);
     cb_enc.encode(bs, cbcoeff, j, i, 10);
     cr_enc.encode(bs, crcoeff, j, i, 10);
   }
