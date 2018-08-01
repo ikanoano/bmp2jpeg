@@ -440,13 +440,13 @@ int main(int argc, char const* argv[]) {
 
   cout << dec << bh.data.bcWidth << 'x' << dec << bh.data.bcHeight << endl;
 
-  vector<vector<YCbCr>> plane(bh.data.bcHeight, vector<YCbCr>());
+  vector<vector<YCbCr>> plane(bh.data.bcHeight/2, vector<YCbCr>());
   const uint8_t* line = bmp+bh.data.bfOffBits;
-  for (int y = 0; y < bh.data.bcHeight; y++) {
-    for (int x = 0; x < bh.data.bcWidth; x++) {
-      plane[y].push_back(YCbCr(line + 3*x));
+  for (int y = 0; y < bh.data.bcHeight; y+=2) {
+    for (int x = 0; x < bh.data.bcWidth; x+=2) {
+      plane[y/2].push_back(YCbCr(line + 3*x));
     }
-    const int w3 = bh.data.bcWidth*3;
+    const int w3 = bh.data.bcWidth*3*2;
     line = line + w3 + padnum(w3,4);
   }
 
@@ -462,14 +462,12 @@ int main(int argc, char const* argv[]) {
 
   // DCT and Quantize
   const int
-    y_height= plane.size(),
-    y_width = plane[0].size(),
-    c_height= plane.size(),
-    c_width = plane[0].size();
+    height= plane.size(),
+    width = plane[0].size();
   coeff_t
-    ycoeff(y_height, vector<int8_t>(y_width)),
-    cbcoeff(c_height, vector<int8_t>(c_width)),
-    crcoeff(c_height, vector<int8_t>(c_width));
+    ycoeff(height, vector<int8_t>(width)),
+    cbcoeff(height, vector<int8_t>(width)),
+    crcoeff(height, vector<int8_t>(width));
   auto sxy_y  = [&](int y,int x) {return plane[y][x].Y;};
   auto sxy_cb = [&](int y,int x) {return plane[y][x].Cb;};
   auto sxy_cr = [&](int y,int x) {return plane[y][x].Cr;};
@@ -477,27 +475,10 @@ int main(int argc, char const* argv[]) {
   dct_q(cbcoeff, sxy_cb, qtable_c);
   dct_q(crcoeff, sxy_cr, qtable_c);
 
-  ofstream test("/tmp/po.bmp", ios::out | ios::binary | ios::trunc);
-  if(!test.is_open()) {cout << "dame" << endl; return 3;}
-  test.write((char*)bmp, bh.data.bfOffBits);
-
-  for (int y = 0; y < bh.data.bcHeight; y++) {
-    for (int x = 0; x < bh.data.bcWidth; x++) {
-      int8_t dd = ycoeff[y][x];
-      if(dd<0 && y && x) dd = -dd; // ac component
-      char d = dd;
-      test.write(&d, 1);
-      test.write(&d, 1);
-      test.write(&d, 1);
-    }
-    const int w3 = bh.data.bcWidth*3;
-    test.write("\0\0\0", padnum(w3,4));
-  }
-
   // Output jpeg header
   ofstream jpeg("/tmp/po.jpg", ios::out | ios::binary | ios::trunc);
   if(!jpeg.is_open()) {cout << "dame" << endl; return 4;}
-  const auto header = jpegheader(bh.data.bcHeight, bh.data.bcWidth);
+  const auto header = jpegheader(bh.data.bcHeight/2, bh.data.bcWidth/2);
   jpeg.write(header.h, header.len);
 
   // huffman encoding
