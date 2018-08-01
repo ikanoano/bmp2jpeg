@@ -360,7 +360,7 @@ public:
   }
   void encode (
       bitstream& bs,
-      const coeff_t& coeff, int offy, int offx) {
+      const coeff_t& coeff, int offy, int offx, int zz_th) {
     // dc
     const int16_t   dc  = coeff[offy][offx];
     const int16_t   ddc = dc - last_dc;
@@ -372,7 +372,7 @@ public:
     // ac
     int runlen = 0;
     const auto zz = zigzag().walk;
-    for (int i = 1; i < 64; i++) {
+    for (int i = 1; i < zz_th; i++) {
       const auto    idx = zz[i];
       const int16_t ac  = coeff[offy+idx[0]][offx+idx[1]];
       if(ac==0) { runlen++; continue; }
@@ -389,7 +389,7 @@ public:
       bs.append(abl, ac<0 ? ac-1 : ac);
       runlen = 0;
     }
-    if(runlen) {
+    if(zz_th<64 || runlen) {
       // add EOB
       bs.append(ac_hufftable[0][0]);
     }
@@ -492,9 +492,9 @@ int main(int argc, char const* argv[]) {
   auto cr_enc = mcu_encoder(false);
   for (int j = 0; j < ycoeff.size();    j += 8)
   for (int i = 0; i < ycoeff[0].size(); i += 8) {
-    y_enc.encode (bs, ycoeff, j, i);
-    cb_enc.encode(bs, cbcoeff, j, i);
-    cr_enc.encode(bs, crcoeff, j, i);
+    y_enc.encode (bs, ycoeff, j, i, 37);
+    cb_enc.encode(bs, cbcoeff, j, i, 10);
+    cr_enc.encode(bs, crcoeff, j, i, 10);
   }
   bs.finish();
 
