@@ -88,21 +88,21 @@ struct costable {
 };
 
 constexpr uint8_t qtable_y[8][8] = {
+  {3, 3, 3, 4, 4, 5, 6, 6},
+  {3, 3, 4, 4, 5, 6, 6, 7},
+  {3, 4, 4, 5, 6, 6, 7, 7},
+  {4, 4, 5, 6, 6, 7, 7, 8},
+  {4, 5, 6, 6, 7, 7, 8, 8},
+  {5, 6, 6, 7, 7, 8, 8, 8},
+  {6, 6, 7, 7, 8, 8, 8, 8},
+  {6, 7, 7, 8, 8, 8, 8, 8}
+};
+constexpr uint8_t qtable_c[8][8] = {
   {4, 4, 5, 6, 7, 8, 8, 8},
   {4, 5, 6, 7, 8, 8, 8, 8},
   {5, 6, 7, 8, 8, 8, 8, 8},
   {6, 7, 8, 8, 8, 8, 8, 8},
   {7, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8}
-};
-constexpr uint8_t qtable_c[8][8] = {
-  {4, 5, 6, 7, 8, 8, 8, 8},
-  {5, 6, 7, 8, 8, 8, 8, 8},
-  {6, 7, 8, 8, 8, 8, 8, 8},
-  {7, 8, 8, 8, 8, 8, 8, 8},
-  {8, 8, 8, 8, 8, 8, 8, 8},
   {8, 8, 8, 8, 8, 8, 8, 8},
   {8, 8, 8, 8, 8, 8, 8, 8},
   {8, 8, 8, 8, 8, 8, 8, 8}
@@ -371,10 +371,10 @@ public:
     bs.append(dbl, ddc<0 ? ddc-1 : ddc);
     last_dc = dc;
 
-    // ac, no ZRL
+    // ac
     int runlen = 0;
     const auto zz = zigzag().walk;
-    for (int i = 1; i < 64 && runlen < 16; i++) {
+    for (int i = 1; i < 64; i++) {
       const auto idx = zz[i];
       const int8_t ac = coeff[offy+idx[0]][offx+idx[1]];
       printf("%2x,", coeff[offy+idx[0]][offx+idx[1]]);
@@ -382,6 +382,11 @@ public:
       // ac is nonzero
       const int abl = bitlen(ac);
       assert(abl>0);
+      while(runlen>15) {
+        // insert ZRL
+        bs.append(ac_hufftable[15][0]);
+        runlen -= 16;
+      }
       bs.append(ac_hufftable[runlen][abl]);
       bs.append(abl, ac<0 ? ac-1 : ac);
       runlen = 0;
