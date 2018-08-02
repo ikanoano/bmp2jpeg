@@ -1,21 +1,3 @@
-
-void bitlentest() {
-  assert(mcu_encoder::bitlen( 0) == 0);
-  assert(mcu_encoder::bitlen( 1) == 1);
-  assert(mcu_encoder::bitlen(-1) == 1);
-  assert(mcu_encoder::bitlen( 2) == 2);
-  assert(mcu_encoder::bitlen( 3) == 2);
-  assert(mcu_encoder::bitlen(-2) == 2);
-  assert(mcu_encoder::bitlen(-3) == 2);
-  assert(mcu_encoder::bitlen( 4) == 3);
-  assert(mcu_encoder::bitlen( 7) == 3);
-  assert(mcu_encoder::bitlen(-4) == 3);
-  assert(mcu_encoder::bitlen(-7) == 3);
-  assert(mcu_encoder::bitlen( 8) == 4);
-  assert(mcu_encoder::bitlen(-8) == 4);
-  cout << "OK\n";
-}
-
 void appendtest(bitstream& bs) {
   bs.append( 8, 0x10);
   bs.append( 8, 0x11);
