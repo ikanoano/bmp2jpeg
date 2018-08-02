@@ -413,6 +413,101 @@ void bitlentest() {
   cout << "OK\n";
 }
 
+template<bool is_y, int dct_th>
+class component_encoder {
+private:
+  int16_t                 last_dc = 0;
+  const int               h_mcu;
+  vector<array<int16_t,dct_th>> sum_acc;
+  const uint8_t   (&qtable)[8][8]           = is_y ? qtable_y       : qtable_c;
+  const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
+  const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
+  static int bitlen (const int16_t v) {
+    for (int i = 0; i < 15; i++) {
+      if(-(1<<i)<v && v<(1<<i)) return  i;
+    }
+    assert(0 && "invalid bitlen");
+  }
+public:
+  component_encoder(int width) :
+    h_mcu(width / 8),
+    sum_acc(vector<array<int16_t,dct_th>>(h_mcu))
+    {}
+  void encode(
+      const uint8_t pix, bitstream& bs,
+      int x_mcu, int y_in_mcu, int x_in_mcu) {
+    assert(x_mcu < h_mcu);
+
+    // level shift
+    const int16_t sxy = (int16_t)pix - 128;
+
+    // dct
+    static constexpr  auto  costblc = costable();
+    const auto  costbl = costblc.v;
+    static constexpr  auto  zzc = zigzag();
+    const auto  zz = zzc.walk;
+    for (int i = 0; i < dct_th; i++) {
+      const auto v = zz[i][0];
+      const auto u = zz[i][1];
+      // reset sum when y==x==0
+      const int16_t s = y_in_mcu+x_in_mcu ? sum_acc[x_mcu][i] : 0;
+      // TODO: scale s not to loss LSB
+      sum_acc[x_mcu][i] =
+        s + sxy * costbl[v][y_in_mcu] * costbl[u][x_in_mcu];
+    }
+
+    if(y_in_mcu<7 || x_in_mcu<7) return;
+    //printf("mcu[%3d] is filled\n", x_mcu);
+
+    static const double isqrt2 = 1/sqrt(2);
+    int runlen = 0;
+    for (int i = 0; i < dct_th; i++) {
+      const auto v = zz[i][0];
+      const auto u = zz[i][1];
+
+      // rest of dct
+      double sq =
+        0.25 * sum_acc[x_mcu][i] * (
+            (u && v) ? 1.0    :
+            (u || v) ? isqrt2 : 0.5);
+
+      // quantize
+      sq /= (1<<qtable[v][u]);
+      assert(-256<=sq && sq<256);
+
+      // huffman encode
+      if(u || v) {
+        // ac
+        const int16_t ac = sq;
+        if(ac==0) { runlen++; continue; }
+        // ac is nonzero
+        const int abl = bitlen(ac);
+        assert(abl>0);
+        while(runlen>15) {
+          // insert ZRL
+          bs.append(ac_hufftable[15][0]);
+          runlen -= 16;
+        }
+        bs.append(ac_hufftable[runlen][abl]);
+        bs.append(abl, ac<0 ? ac-1 : ac);
+        runlen = 0;
+      } else {
+        // dc
+        const int16_t   dc  = sq;
+        const int16_t   ddc = dc - last_dc;
+        const int dbl = bitlen(ddc);
+        bs.append(dc_hufftable[dbl]);
+        bs.append(dbl, ddc<0 ? ddc-1 : ddc);
+        last_dc = dc;
+      }
+    }
+    if(dct_th<64 || runlen) {
+      // add EOB
+      bs.append(ac_hufftable[0][0]);
+    }
+  }
+};
+
 
 int main(int argc, char const* argv[]) {
   ios::sync_with_stdio(false);
@@ -464,44 +559,30 @@ int main(int argc, char const* argv[]) {
 
   cout << dec << plane.size() << 'x' << dec << plane[0].size() << endl;
 
-  // DCT and Quantize
-  const int
-    height= plane.size(),
-    width = plane[0].size();
-  coeff_t
-    ycoeff(height, vector<int16_t>(width)),
-    cbcoeff(height, vector<int16_t>(width)),
-    crcoeff(height, vector<int16_t>(width));
-  auto sxy_y  = [&](int y,int x) {return plane[y][x].Y;};
-  auto sxy_cb = [&](int y,int x) {return plane[y][x].Cb;};
-  auto sxy_cr = [&](int y,int x) {return plane[y][x].Cr;};
-  dct_q( ycoeff, sxy_y,  qtable_y);
-  dct_q(cbcoeff, sxy_cb, qtable_c);
-  dct_q(crcoeff, sxy_cr, qtable_c);
-
-  // Output jpeg header
+  // output jpeg header
   ofstream jpeg("/tmp/po.jpg", ios::out | ios::binary | ios::trunc);
   if(!jpeg.is_open()) {cout << "dame" << endl; return 4;}
   const auto header = jpegheader(bh.data.bcHeight/2, bh.data.bcWidth/2);
   jpeg.write(header.h, header.len);
 
-  // huffman encoding
-  auto bs = bitstream(jpeg);
-  auto y_enc  = mcu_encoder(true);
-  auto cb_enc = mcu_encoder(false);
-  auto cr_enc = mcu_encoder(false);
-  for (int j = 0; j < ycoeff.size();    j += 8)
-  for (int i = 0; i < ycoeff[0].size(); i += 8) {
-    y_enc.encode (bs, ycoeff, j, i, 49);
-    cb_enc.encode(bs, cbcoeff, j, i, 10);
-    cr_enc.encode(bs, crcoeff, j, i, 10);
+  // output jpeg entropy-coded data
+  auto      bs = bitstream(jpeg);
+  const int ysize = plane.size();
+  const int xsize = plane[0].size();
+
+  auto   yenc = component_encoder<true,  49>(xsize);
+  auto  cbenc = component_encoder<false, 10>(xsize);
+  auto  crenc = component_encoder<false, 10>(xsize);
+  for (int y = 0; y < ysize; y++)
+  for (int x = 0; x < xsize; x++) {
+     yenc.encode(plane[y][x].Y,  bs, x/8, y&7, x&7);
+    cbenc.encode(plane[y][x].Cb, bs, x/8, y&7, x&7);
+    crenc.encode(plane[y][x].Cr, bs, x/8, y&7, x&7);
   }
+
+  // output jpeg footer
   bs.finish();
-
-  // Output jpeg footer
   jpeg.write((char*)header.EOI, sizeof(header.EOI));
-
-
 
   return 0;
 }
