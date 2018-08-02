@@ -320,13 +320,14 @@ int main(int argc, char const* argv[]) {
     }
 
     // convert color space, vertically invert
-    vector<vector<YCbCr>> plane(bh.data.bcHeight/2, vector<YCbCr>());
+    constexpr int scale = 1;
+    vector<vector<YCbCr>> plane(bh.data.bcHeight/scale, vector<YCbCr>());
     const uint8_t* line = bmp+bh.data.bfOffBits;
-    for (int y = 0; y < bh.data.bcHeight; y+=2) {
-      for (int x = 0; x < bh.data.bcWidth; x+=2) {
-        plane[(bh.data.bcHeight-y-1)/2].push_back(YCbCr(line + 3*x));
+    for (int y = 0; y < bh.data.bcHeight; y+=scale) {
+      for (int x = 0; x < bh.data.bcWidth; x+=scale) {
+        plane[(bh.data.bcHeight-y-1)/scale].push_back(YCbCr(line + 3*x));
       }
-      const int w3 = bh.data.bcWidth*3*2;
+      const int w3 = bh.data.bcWidth*3*scale;
       line = line + w3 + padnum(w3,4);
     }
 
@@ -337,7 +338,7 @@ int main(int argc, char const* argv[]) {
     plane.insert(plane.end(), ypad, plane.back());
 
     // output jpeg header
-    const auto header = jpegheader(bh.data.bcHeight/2, bh.data.bcWidth/2);
+    const auto header = jpegheader(bh.data.bcHeight/scale, bh.data.bcWidth/scale);
     jpeg.write(header.h, header.len);
 
     // output jpeg entropy-coded data
