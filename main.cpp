@@ -369,14 +369,18 @@ public:
       const auto v = zz[i][0];
       const auto u = zz[i][1];
 
-      // rest of dct
-      double sq =
-        0.25 * sum_acc[x_mcu][i] * (
-            (u && v) ? 1.0    :
-            (u || v) ? isqrt2 : 0.5);
-
-      // quantize
-      sq /= (1<<qtable[v][u]);
+      // rest of dct and quantize
+      int16_t sq =
+        (u && v) ? (int16_t)sum_acc[x_mcu][i]          >> (2+qtable[v][u]) :
+        (u || v) ? (int16_t)(sum_acc[x_mcu][i]*isqrt2) >> (2+qtable[v][u]) :
+                   (int16_t)sum_acc[x_mcu][i]          >> (3+qtable[v][u]);
+      if(sq<0) sq++;
+      // equivalent to:
+      //double sq =
+      //  0.25 * sum_acc[x_mcu][i] * (
+      //      (u && v) ? 1.0    :
+      //      (u || v) ? isqrt2 : 0.5);
+      //sq /= (1<<qtable[v][u]);
       assert(-256<=sq && sq<256);
 
       // huffman encode
