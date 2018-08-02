@@ -287,74 +287,78 @@ public:
 static inline int padnum(int b, int align) {return b%align ? align-b%align : 0; }
 int main(int argc, char const* argv[]) {
   ios::sync_with_stdio(false);
-  if(argc!=2) {
-    cout << "usage: bmp2jpeg filename" << endl;
+  if(argc<2) {
+    cout << "usage: bmp2jpeg filename..." << endl;
     return 1;
   }
 
-  // read bmp
-  ifstream bmps(argv[1], ios::in | ios::binary | ios::ate);
-  if(!bmps.is_open()) {
-    cout << "failed to read " << argv[1] << endl;
-    return 2;
-  }
-
-  const streampos size = bmps.tellg();
-  auto* const bmp = new uint8_t[size];
-  bmps.seekg(0, ios::beg);
-  bmps.read((char*)bmp, size);
-  bmps.close();
-
-  bmpheader bh;
-  if(!bh.read_header(bmp, size)) {
-    cout << "invalid or unexpected bmp" << endl;
-    return 3;
-  }
-
-  cout << bh.data.bcHeight << 'x' << bh.data.bcWidth << endl;
-
-  // convert color space, vertically invert
-  vector<vector<YCbCr>> plane(bh.data.bcHeight/2, vector<YCbCr>());
-  const uint8_t* line = bmp+bh.data.bfOffBits;
-  for (int y = 0; y < bh.data.bcHeight; y+=2) {
-    for (int x = 0; x < bh.data.bcWidth; x+=2) {
-      plane[(bh.data.bcHeight-y-1)/2].push_back(YCbCr(line + 3*x));
-    }
-    const int w3 = bh.data.bcWidth*3*2;
-    line = line + w3 + padnum(w3,4);
-  }
-
-  // padding
-  const int ypad = padnum(plane.size(), 8);
-  const int xpad = padnum(plane[0].size(), 8);
-  for (auto&& l : plane) { l.insert(l.end(), xpad, l.back()); }
-  plane.insert(plane.end(), ypad, plane.back());
-
-  cout << plane.size() << 'x' << plane[0].size() << endl;
-
-  // output jpeg header
-  ofstream jpeg("/tmp/po.jpg", ios::out | ios::binary | ios::trunc);
+  ofstream jpeg(
+      argc==2 ? "/tmp/out.jpg" : "/tmp/out.mjpg",
+      ios::out | ios::binary | ios::trunc);
   if(!jpeg.is_open()) {cout << "dame" << endl; return 4;}
-  const auto header = jpegheader(bh.data.bcHeight/2, bh.data.bcWidth/2);
-  jpeg.write(header.h, header.len);
 
-  // output jpeg entropy-coded data
-  auto      bs    = bitstream(jpeg);
-  const int ysize = plane.size();
-  const int xsize = plane[0].size();
-  auto   yenc = component_encoder<true,  49>(xsize);
-  auto  cbenc = component_encoder<false, 10>(xsize);
-  auto  crenc = component_encoder<false, 10>(xsize);
-  for (int y = 0; y < ysize; y++)
-  for (int x = 0; x < xsize; x++) {
-     yenc.encode(plane[y][x].Y,  bs, x>>3, y&7, x&7);
-    cbenc.encode(plane[y][x].Cb, bs, x>>3, y&7, x&7);
-    crenc.encode(plane[y][x].Cr, bs, x>>3, y&7, x&7);
+  for (int i = 1; i < argc; i++) {
+    cout << (i%10 ? "." : "*") << flush;
+
+    // read bmp
+    ifstream bmps(argv[i], ios::in | ios::binary | ios::ate);
+    if(!bmps.is_open()) {
+      cout << "failed to read " << argv[1] << endl;
+      return 2;
+    }
+
+    const streampos size = bmps.tellg();
+    auto* const bmp = new uint8_t[size];
+    bmps.seekg(0, ios::beg);
+    bmps.read((char*)bmp, size);
+    bmps.close();
+
+    bmpheader bh;
+    if(!bh.read_header(bmp, size)) {
+      cout << "invalid or unexpected bmp" << endl;
+      return 3;
+    }
+
+    // convert color space, vertically invert
+    vector<vector<YCbCr>> plane(bh.data.bcHeight/2, vector<YCbCr>());
+    const uint8_t* line = bmp+bh.data.bfOffBits;
+    for (int y = 0; y < bh.data.bcHeight; y+=2) {
+      for (int x = 0; x < bh.data.bcWidth; x+=2) {
+        plane[(bh.data.bcHeight-y-1)/2].push_back(YCbCr(line + 3*x));
+      }
+      const int w3 = bh.data.bcWidth*3*2;
+      line = line + w3 + padnum(w3,4);
+    }
+
+    // padding
+    const int ypad = padnum(plane.size(), 8);
+    const int xpad = padnum(plane[0].size(), 8);
+    for (auto&& l : plane) { l.insert(l.end(), xpad, l.back()); }
+    plane.insert(plane.end(), ypad, plane.back());
+
+    // output jpeg header
+    const auto header = jpegheader(bh.data.bcHeight/2, bh.data.bcWidth/2);
+    jpeg.write(header.h, header.len);
+
+    // output jpeg entropy-coded data
+    auto      bs    = bitstream(jpeg);
+    const int ysize = plane.size();
+    const int xsize = plane[0].size();
+    auto   yenc = component_encoder<true,  49>(xsize);
+    auto  cbenc = component_encoder<false, 10>(xsize);
+    auto  crenc = component_encoder<false, 10>(xsize);
+    for (int y = 0; y < ysize; y++)
+    for (int x = 0; x < xsize; x++) {
+       yenc.encode(plane[y][x].Y,  bs, x>>3, y&7, x&7);
+      cbenc.encode(plane[y][x].Cb, bs, x>>3, y&7, x&7);
+      crenc.encode(plane[y][x].Cr, bs, x>>3, y&7, x&7);
+    }
+
+    // output jpeg footer
+    bs.finish();
+    jpeg.write((char*)header.EOI, sizeof(header.EOI));
   }
 
-  // output jpeg footer
-  bs.finish();
-  jpeg.write((char*)header.EOI, sizeof(header.EOI));
 
   return 0;
 }
