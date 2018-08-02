@@ -365,7 +365,7 @@ public:
 
     static const double isqrt2 = 1/sqrt(2);
     int runlen = 0;
-    for (int i = 0; i < dct_th; i++) {
+    for (int i = 0; i < dct_th && runlen < 16; i++) {
       const auto v = zz[i][0];
       const auto u = zz[i][1];
 
@@ -391,11 +391,7 @@ public:
         // ac is nonzero
         const int abl = bitlen(ac);
         assert(abl>0);
-        while(runlen>15) {
-          // insert ZRL
-          bs.append(ac_hufftable[15][0]);
-          runlen -= 16;
-        }
+        assert(runlen<16);
         bs.append(ac_hufftable[runlen][abl]);
         bs.append(abl, ac<0 ? ac-1 : ac);
         runlen = 0;
