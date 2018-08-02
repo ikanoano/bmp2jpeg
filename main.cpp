@@ -215,7 +215,6 @@ public:
     const int16_t sxy = (int16_t)pix - 128;
 
     // dct
-    constexpr int scale = 2;
     static constexpr  auto  costblc = costable();
     const auto  costbl = costblc.v;
     static constexpr  auto  zzc = zigzag();
@@ -225,8 +224,9 @@ public:
       const auto u = zz[i][1];
       // reset sum when y==x==0
       const int16_t s = y_in_mcu+x_in_mcu ? sum_acc[x_mcu][i] : 0;
+      // TODO: scale s not to loss LSB
       sum_acc[x_mcu][i] =
-        s + (sxy<<scale) * costbl[v][y_in_mcu] * costbl[u][x_in_mcu];
+        s + sxy * costbl[v][y_in_mcu] * costbl[u][x_in_mcu];
     }
 
     if(y_in_mcu<7 || x_in_mcu<7) return;
@@ -240,9 +240,9 @@ public:
 
       // rest of dct and quantize
       int16_t sq =
-        (u && v) ? (int16_t)sum_acc[x_mcu][i]          >> (scale+2+qtable[v][u]) :
-        (u || v) ? (int16_t)(sum_acc[x_mcu][i]*isqrt2) >> (scale+2+qtable[v][u]) :
-                   (int16_t)sum_acc[x_mcu][i]          >> (scale+3+qtable[v][u]);
+        (u && v) ? (int16_t)sum_acc[x_mcu][i]          >> (2+qtable[v][u]) :
+        (u || v) ? (int16_t)(sum_acc[x_mcu][i]*isqrt2) >> (2+qtable[v][u]) :
+                   (int16_t)sum_acc[x_mcu][i]          >> (3+qtable[v][u]);
       if(sq<0) sq++;
       // equivalent to:
       //double sq =
