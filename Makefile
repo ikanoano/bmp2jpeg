@@ -4,5 +4,5 @@ all: a.out
 	firefox /tmp/po.jpg
 
 a.out: main.cpp
-	g++ -std=c++17 main.cpp
+	g++ -std=c++17 -O3 main.cpp
 
