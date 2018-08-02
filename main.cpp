@@ -94,11 +94,13 @@ struct zigzag {
 // cos((2*x+1)*u*PI/16)
 struct costable {
   constexpr static double PI = 3.141592653589793;
-  double v[8][8];
+  constexpr static int    scale = 7;
+  int8_t v[8][8];
   constexpr costable() : v() {
     for (int j = 0; j < 8; j++)
     for (int i = 0; i < 8; i++) {
-      v[j][i] = cos((2*i+1)*j*PI/16);
+      int16_t tmp = cos((2*i+1)*j*PI/16) * (1<<scale);
+      v[j][i] = tmp==128 ? 127 : tmp;
     }
   }
 };
@@ -224,15 +226,16 @@ public:
       const auto u = zz[i][1];
       // reset sum when y==x==0
       const int16_t s = y_in_mcu+x_in_mcu ? sum_acc[x_mcu][i] : 0;
-      // TODO: scale s not to loss LSB
-      sum_acc[x_mcu][i] =
-        s + sxy * costbl[v][y_in_mcu] * costbl[u][x_in_mcu];
+      const int16_t m = (int32_t)sxy *
+        costbl[v][y_in_mcu] * costbl[u][x_in_mcu] >> costable::scale*2;
+      sum_acc[x_mcu][i] = s + m + (m<0 ? 1 : 0);
     }
 
     if(y_in_mcu<7 || x_in_mcu<7) return;
     //printf("mcu[%3d] is filled\n", x_mcu);
 
-    static const double isqrt2 = 1/sqrt(2);
+    static const int isqrt_scale = 4;
+    static const int16_t isqrt2 = 1/sqrt(2) * (1<<isqrt_scale);
     int runlen = 0;
     for (int i = 0; i < dct_th && runlen < 16; i++) {
       const auto v = zz[i][0];
@@ -240,9 +243,9 @@ public:
 
       // rest of dct and quantize
       int16_t sq =
-        (u && v) ? (int16_t)sum_acc[x_mcu][i]          >> (2+qtable[v][u]) :
-        (u || v) ? (int16_t)(sum_acc[x_mcu][i]*isqrt2) >> (2+qtable[v][u]) :
-                   (int16_t)sum_acc[x_mcu][i]          >> (3+qtable[v][u]);
+        (u && v) ? (int32_t)sum_acc[x_mcu][i]          >> (2+qtable[v][u]) :
+        (u || v) ? (int32_t)(sum_acc[x_mcu][i]*isqrt2) >> (2+qtable[v][u]+isqrt_scale) :
+                   (int32_t)sum_acc[x_mcu][i]          >> (3+qtable[v][u]);
       if(sq<0) sq++;
       // equivalent to:
       //double sq =
