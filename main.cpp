@@ -30,7 +30,6 @@ union bmpheader {
     uint32_t  biCirImportant;
   } data;
 };
-using coeff_t = vector<vector<int16_t>>;
 
 struct YCbCr {
   static constexpr int scale = 1<<8;
@@ -96,6 +95,7 @@ constexpr uint8_t qtable_y[8][8] = {
   {3, 4, 4, 4, 5, 5, 5, 5},
   {4, 4, 4, 5, 5, 5, 5, 5}
 };
+
 constexpr uint8_t qtable_c[8][8] = {
   {2, 4, 4, 5, 7, 7, 7, 7},
   {4, 4, 5, 7, 7, 7, 7, 8},
@@ -240,7 +240,8 @@ struct jpegheader {
   char  h[4096];
   jpegheader(uint16_t y, uint16_t x) : h() {
     int acc = 0;
-    const auto zz = zigzag().walk;
+    static constexpr  auto  zzc = zigzag();
+    const auto  zz = zzc.walk;
     for (int i = 0; i < sizeof(SOI); i++) h[acc++] = SOI[i];
     for (int i = 0; i < sizeof(DQT); i++) h[acc++] = DQT[i];
     h[acc++] = 0;
@@ -265,8 +266,7 @@ struct jpegheader {
   }
 };
 
-
-bool load_header(uint8_t const* bmp, const int len, bmpheader& bh) {
+bool read_bmp_header(uint8_t const* bmp, const int len, bmpheader& bh) {
   constexpr int len_head = sizeof(bmpheader::raw);
   if(len < len_head) return false;
   for(int i = 0; i < len_head; i++) bh.raw[i] = bmp[i+2];
@@ -281,33 +281,6 @@ bool load_header(uint8_t const* bmp, const int len, bmpheader& bh) {
 }
 static inline int padnum(int b, int align) {
   return b%align ? align-b%align : 0;
-}
-
-template<typename fsxy>
-void dct_q(coeff_t& coeff, fsxy sxy, const uint8_t (&q)[8][8]) {
-  constexpr auto   costbl = costable();
-  constexpr double isqrt2 = 1/sqrt(2);
-  for (int j = 0; j < coeff.size();    j += 8)
-  for (int i = 0; i < coeff[0].size(); i += 8) {
-    for (int v = 0; v < 8; v++)
-    for (int u = 0; u < 8; u++) {
-      if(q[v][u] >= 8) {coeff[j+v][i+u] = 0; break;}
-      int16_t a = 0;
-      for (int y = 0; y < 8; y++)
-      for (int x = 0; x < 8; x++) {
-        a += ((int16_t)sxy(j+y, i+x)-128) *
-          costbl.v[u][x] *
-          costbl.v[v][y];
-      }
-      double ce =
-        0.25 * a * (
-        (u && v) ? 1.0    :
-        (u || v) ? isqrt2 : 0.5);
-      ce /= (1<<q[v][u]);
-      assert(-256<=ce && ce<256);
-      coeff[j+v][i+u] = ce;
-    }
-  }
 }
 
 class bitstream {
@@ -343,75 +316,6 @@ public:
   void finish() { append(8-len_acc, ~0); }
 };
 
-struct mcu_encoder {
-private:
-  int16_t last_dc = 0;
-  const uint16_t (&dc_hufftable)[12][2];
-  const uint16_t (&ac_hufftable)[16][11][2];
-public:
-  mcu_encoder(bool is_y) :
-    dc_hufftable(is_y ? dc_y_hufftable : dc_c_hufftable),
-    ac_hufftable(is_y ? ac_y_hufftable : ac_c_hufftable) {}
-  static int bitlen (const int16_t v) {
-    for (int i = 0; i < 15; i++) {
-      if(-(1<<i)<v && v<(1<<i)) return  i;
-    }
-    assert(0 && "invalid bitlen");
-  }
-  void encode (
-      bitstream& bs,
-      const coeff_t& coeff, int offy, int offx, int zz_th) {
-    // dc
-    const int16_t   dc  = coeff[offy][offx];
-    const int16_t   ddc = dc - last_dc;
-    const int dbl = bitlen(ddc);
-    bs.append(dc_hufftable[dbl]);
-    bs.append(dbl, ddc<0 ? ddc-1 : ddc);
-    last_dc = dc;
-
-    // ac
-    int runlen = 0;
-    const auto zz = zigzag().walk;
-    for (int i = 1; i < zz_th; i++) {
-      const auto    idx = zz[i];
-      const int16_t ac  = coeff[offy+idx[0]][offx+idx[1]];
-      if(ac==0) { runlen++; continue; }
-      // ac is nonzero
-      const int abl = bitlen(ac);
-      assert(abl>0);
-      while(runlen>15) {
-        // insert ZRL
-        printf("Z");
-        bs.append(ac_hufftable[15][0]);
-        runlen -= 16;
-      }
-      bs.append(ac_hufftable[runlen][abl]);
-      bs.append(abl, ac<0 ? ac-1 : ac);
-      runlen = 0;
-    }
-    if(zz_th<64 || runlen) {
-      // add EOB
-      bs.append(ac_hufftable[0][0]);
-    }
-  }
-};
-
-void bitlentest() {
-  assert(mcu_encoder::bitlen( 0) == 0);
-  assert(mcu_encoder::bitlen( 1) == 1);
-  assert(mcu_encoder::bitlen(-1) == 1);
-  assert(mcu_encoder::bitlen( 2) == 2);
-  assert(mcu_encoder::bitlen( 3) == 2);
-  assert(mcu_encoder::bitlen(-2) == 2);
-  assert(mcu_encoder::bitlen(-3) == 2);
-  assert(mcu_encoder::bitlen( 4) == 3);
-  assert(mcu_encoder::bitlen( 7) == 3);
-  assert(mcu_encoder::bitlen(-4) == 3);
-  assert(mcu_encoder::bitlen(-7) == 3);
-  assert(mcu_encoder::bitlen( 8) == 4);
-  assert(mcu_encoder::bitlen(-8) == 4);
-  cout << "OK\n";
-}
 
 template<bool is_y, int dct_th>
 class component_encoder {
@@ -516,7 +420,7 @@ int main(int argc, char const* argv[]) {
     return 1;
   }
 
-  // Read bmp
+  // read bmp
   ifstream bmps(argv[1], ios::in | ios::binary | ios::ate);
   if(!bmps.is_open()) {
     cout << "failed to read " << argv[1] << endl;
@@ -530,7 +434,7 @@ int main(int argc, char const* argv[]) {
   bmps.close();
 
   bmpheader bh;
-  if(!load_header(bmp, size, bh)) {
+  if(!read_bmp_header(bmp, size, bh)) {
     cout << "invalid or unexpected bmp" << endl;
     return 2;
   }
@@ -547,7 +451,7 @@ int main(int argc, char const* argv[]) {
     line = line + w3 + padnum(w3,4);
   }
 
-  // Align plane
+  // padding
   const int ypad = padnum(plane.size(), 8);
   const int xpad = padnum(plane[0].size(), 8);
   for (auto&& l : plane) {
@@ -569,15 +473,14 @@ int main(int argc, char const* argv[]) {
   auto      bs = bitstream(jpeg);
   const int ysize = plane.size();
   const int xsize = plane[0].size();
-
   auto   yenc = component_encoder<true,  49>(xsize);
   auto  cbenc = component_encoder<false, 10>(xsize);
   auto  crenc = component_encoder<false, 10>(xsize);
   for (int y = 0; y < ysize; y++)
   for (int x = 0; x < xsize; x++) {
-     yenc.encode(plane[y][x].Y,  bs, x/8, y&7, x&7);
-    cbenc.encode(plane[y][x].Cb, bs, x/8, y&7, x&7);
-    crenc.encode(plane[y][x].Cr, bs, x/8, y&7, x&7);
+     yenc.encode(plane[y][x].Y,  bs, x>>3, y&7, x&7);
+    cbenc.encode(plane[y][x].Cb, bs, x>>3, y&7, x&7);
+    crenc.encode(plane[y][x].Cr, bs, x>>3, y&7, x&7);
   }
 
   // output jpeg footer
@@ -585,42 +488,5 @@ int main(int argc, char const* argv[]) {
   jpeg.write((char*)header.EOI, sizeof(header.EOI));
 
   return 0;
-}
-
-void appendtest(bitstream& bs) {
-  bs.append( 8, 0x10);
-  bs.append( 8, 0x11);
-  bs.append( 8, 0x10);
-  bs.append( 8, 0x11);
-  bs.append( 8, 0xFF); // added 00
-  bs.append(16, 0x1010);
-  bs.append(16, 0x1111);
-  bs.append(16, 0x1010);
-  bs.append(16, 0x1111);
-  bs.append(16, 0xFFFF); // added two 00
-  // 01
-  bs.append( 4, 0x0);
-  bs.append( 4, 0xF1);
-  // 81
-  bs.append( 1, 0xF1);
-  bs.append( 7, 0x01);
-  // 81
-  bs.append( 7, 0x40);
-  bs.append( 1, 0xF1);
-  // AA
-  bs.append( 3, 0xF5);
-  bs.append( 3, 0xF2);
-  bs.append( 2, 0xF2);
-  // 555A
-  bs.append(12, 0x555);
-  bs.append( 4, 0xFA);
-  // A555
-  bs.append( 4, 0xFA);
-  bs.append(12, 0x555);
-
-  // 77FF00 including padding
-  bs.append(9, 0x0EF);
-  // 0 1110 1111 111
-  bs.finish();
 }
 
