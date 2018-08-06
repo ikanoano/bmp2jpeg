@@ -187,13 +187,23 @@ public:
   void finish() { append(8-len_acc, ~0); }
 };
 
+struct dsp {
+private:
+  int32_t acc_Z;
+public:
+  int32_t calc(int32_t A, int32_t B, const int32_t* Z, bool load_Z) {
+    acc_Z = A * B + (load_Z ? *Z : acc_Z);
+    return acc_Z;
+  }
+};
 
 template<bool is_y, int dct_th>
 class component_encoder {
 private:
   int16_t                 last_dc = 0;
   const int               h_mcu;
-  vector<array<int16_t,dct_th>> sum_acc;
+  int32_t                 sum_acc[960][dct_th];
+  dsp                     dspi[dct_th];
   const uint8_t   (&qtable)[8][8]           = is_y ? qtable_y       : qtable_c;
   const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
   const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
@@ -204,10 +214,7 @@ private:
     assert(0 && "invalid bitlen");
   }
 public:
-  component_encoder(int width) :
-    h_mcu(width / 8),
-    sum_acc(vector<array<int16_t,dct_th>>(h_mcu))
-    {}
+  component_encoder(int width) : h_mcu(width / 8) {assert(960>=h_mcu);}
   void encode(
       const uint8_t pix, bitstream& bs,
       int x_mcu, int y_in_mcu, int x_in_mcu) {
@@ -222,13 +229,26 @@ public:
     static constexpr  auto  zzc = zigzag();
     const auto  zz = zzc.walk;
     for (int i = 0; i < dct_th; i++) {
+      constexpr int32_t zero = 0;
       const auto v = zz[i][0];
       const auto u = zz[i][1];
+      int32_t dtmp = dspi[i].calc(
+        sxy,
+        costbl[v][y_in_mcu] * costbl[u][x_in_mcu],
+        x_in_mcu==0 && y_in_mcu>0 ? &(sum_acc[x_mcu][i]) : &zero,
+        x_in_mcu==0
+      );
+      if(x_in_mcu<7) continue;
+      // store dtmp to sum_acc
+      sum_acc[x_mcu][i] = dtmp;
+
+      // equivalent to:
       // reset sum when y==x==0
-      const int16_t s = y_in_mcu+x_in_mcu ? sum_acc[x_mcu][i] : 0;
-      const int16_t m = (int32_t)sxy *
-        costbl[v][y_in_mcu] * costbl[u][x_in_mcu] >> costable::scale*2;
-      sum_acc[x_mcu][i] = s + m + (m<0 ? 1 : 0);
+      //const int16_t s = y_in_mcu+x_in_mcu ? sum_acc[x_mcu][i] : 0;
+      //const int16_t m = (int32_t)sxy *
+      //  costbl[v][y_in_mcu] * costbl[u][x_in_mcu] >> costable::scale*2;
+      //sum_acc[x_mcu][i] = s + m + (m<0 ? 1 : 0);
+
     }
 
     if(y_in_mcu<7 || x_in_mcu<7) return;
@@ -242,10 +262,10 @@ public:
       const auto u = zz[i][1];
 
       // rest of dct and quantize
-      int16_t sq =
-        (u && v) ? (int32_t)sum_acc[x_mcu][i]          >> (2+qtable[v][u]) :
-        (u || v) ? (int32_t)(sum_acc[x_mcu][i]*isqrt2) >> (2+qtable[v][u]+isqrt_scale) :
-                   (int32_t)sum_acc[x_mcu][i]          >> (3+qtable[v][u]);
+      int32_t sq =
+        (u && v) ? (int32_t)sum_acc[x_mcu][i]          >> (costable::scale*2+2+qtable[v][u]) :
+        (u || v) ? (int32_t)(sum_acc[x_mcu][i]*isqrt2) >> (costable::scale*2+2+qtable[v][u]+isqrt_scale) :
+                   (int32_t)sum_acc[x_mcu][i]          >> (costable::scale*2+3+qtable[v][u]);
       if(sq<0) sq++;
       // equivalent to:
       //double sq =
@@ -345,9 +365,9 @@ int main(int argc, char const* argv[]) {
     auto      bs    = bitstream(jpeg);
     const int ysize = plane.size();
     const int xsize = plane[0].size();
-    auto   yenc = component_encoder<true,  49>(xsize);
-    auto  cbenc = component_encoder<false, 10>(xsize);
-    auto  crenc = component_encoder<false, 10>(xsize);
+    auto   yenc = component_encoder<true,  28>(xsize);
+    auto  cbenc = component_encoder<false, 6>(xsize);
+    auto  crenc = component_encoder<false, 6>(xsize);
     for (int y = 0; y < ysize; y++)
     for (int x = 0; x < xsize; x++) {
        yenc.encode(plane[y][x].Y,  bs, x>>3, y&7, x&7);
