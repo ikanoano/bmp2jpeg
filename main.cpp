@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <array>
 #include <cstdint>
 #include <cassert>
 #include <cmath>
@@ -105,6 +106,26 @@ struct costable {
   }
 };
 
+template<int dct_th>
+struct dct_costable {
+  int8_t    table[dct_th][8][8];
+  constexpr dct_costable() : table() {
+    constexpr auto  costblc = costable();
+    const     auto  costbl  = costblc.v;
+    constexpr auto  zzc     = zigzag();
+    const     auto  zz      = zzc.walk;
+    for (int i = 0; i < dct_th; i++) {
+      const auto v = zz[i][0];
+      const auto u = zz[i][1];
+      for (int y = 0; y < 8; y++)
+      for (int x = 0; x < 8; x++) {
+        const int16_t tmp = costbl[v][y] * costbl[u][x] >> costable::scale;
+        table[i][y][x] = tmp>=0 ? tmp : tmp+1;
+      }
+    }
+  }
+};
+
 struct jpegheader {
   static constexpr uint8_t SOI[] = {0xff, 0xd8};
   static constexpr uint8_t DQT[] = {0xff, 0xdb, 0x00, 0x84};
@@ -191,7 +212,7 @@ struct dsp {
 private:
   int32_t acc_Z;
 public:
-  int32_t calc(int32_t A, int32_t B, const int32_t* Z, bool load_Z) {
+  int32_t calc(int16_t A, int8_t B, const int32_t* Z, bool load_Z) {
     acc_Z = A * B + (load_Z ? *Z : acc_Z);
     return acc_Z;
   }
@@ -204,6 +225,7 @@ private:
   const int               h_mcu;
   int32_t                 sum_acc[960][dct_th];
   dsp                     dspi[dct_th];
+  static constexpr auto   dcost             = dct_costable<dct_th>();
   const uint8_t   (&qtable)[8][8]           = is_y ? qtable_y       : qtable_c;
   const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
   const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
@@ -224,17 +246,12 @@ public:
     const int16_t sxy = (int16_t)pix - 128;
 
     // dct
-    static constexpr  auto  costblc = costable();
-    const auto  costbl = costblc.v;
-    static constexpr  auto  zzc = zigzag();
-    const auto  zz = zzc.walk;
     for (int i = 0; i < dct_th; i++) {
       constexpr int32_t zero = 0;
-      const auto v = zz[i][0];
-      const auto u = zz[i][1];
       int32_t dtmp = dspi[i].calc(
         sxy,
-        costbl[v][y_in_mcu] * costbl[u][x_in_mcu],
+        dcost.table[i][y_in_mcu][x_in_mcu],
+        //costbl[v][y_in_mcu] * costbl[u][x_in_mcu],
         x_in_mcu==0 && y_in_mcu>0 ? &(sum_acc[x_mcu][i]) : &zero,
         x_in_mcu==0
       );
@@ -254,8 +271,10 @@ public:
     if(y_in_mcu<7 || x_in_mcu<7) return;
     //printf("mcu[%3d] is filled\n", x_mcu);
 
-    static const int isqrt_scale = 4;
-    static const int16_t isqrt2 = 1/sqrt(2) * (1<<isqrt_scale);
+    static constexpr auto     zzc         = zigzag();
+    static constexpr auto     zz          = zzc.walk;
+    static constexpr int      isqrt_scale = 4;
+    static constexpr int16_t  isqrt2      = 1/sqrt(2) * (1<<isqrt_scale);
     int runlen = 0;
     for (int i = 0; i < dct_th && runlen < 16; i++) {
       const auto v = zz[i][0];
@@ -263,9 +282,9 @@ public:
 
       // rest of dct and quantize
       int32_t sq =
-        (u && v) ? (int32_t)sum_acc[x_mcu][i]          >> (costable::scale*2+2+qtable[v][u]) :
-        (u || v) ? (int32_t)(sum_acc[x_mcu][i]*isqrt2) >> (costable::scale*2+2+qtable[v][u]+isqrt_scale) :
-                   (int32_t)sum_acc[x_mcu][i]          >> (costable::scale*2+3+qtable[v][u]);
+        (u && v) ? (int32_t)sum_acc[x_mcu][i]          >> (costable::scale+2+qtable[v][u]) :
+        (u || v) ? (int32_t)(sum_acc[x_mcu][i]*isqrt2) >> (costable::scale+2+qtable[v][u]+isqrt_scale) :
+                   (int32_t)sum_acc[x_mcu][i]          >> (costable::scale+3+qtable[v][u]);
       if(sq<0) sq++;
       // equivalent to:
       //double sq =
