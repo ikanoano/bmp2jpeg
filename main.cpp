@@ -119,7 +119,12 @@ struct dct_costable {
       const auto u = zz[i][1];
       for (int y = 0; y < 8; y++)
       for (int x = 0; x < 8; x++) {
-        const int16_t tmp = costbl[v][y] * costbl[u][x] >> costable::scale;
+        int16_t tmp = costbl[v][y] * costbl[u][x];
+        tmp *=
+          (u && v) ?  1.0        :
+          (u || v) ?  1/sqrt(2)  :
+                      0.5;
+        tmp >>= costable::scale;
         table[i][y][x] = tmp>=0 ? tmp : tmp+1;
       }
     }
@@ -258,14 +263,6 @@ public:
       if(x_in_mcu<7) continue;
       // store dtmp to sum_acc
       sum_acc[x_mcu][i] = dtmp;
-
-      // equivalent to:
-      // reset sum when y==x==0
-      //const int16_t s = y_in_mcu+x_in_mcu ? sum_acc[x_mcu][i] : 0;
-      //const int16_t m = (int32_t)sxy *
-      //  costbl[v][y_in_mcu] * costbl[u][x_in_mcu] >> costable::scale*2;
-      //sum_acc[x_mcu][i] = s + m + (m<0 ? 1 : 0);
-
     }
 
     if(y_in_mcu<7 || x_in_mcu<7) return;
@@ -273,25 +270,15 @@ public:
 
     static constexpr auto     zzc         = zigzag();
     static constexpr auto     zz          = zzc.walk;
-    static constexpr int      isqrt_scale = 4;
-    static constexpr int16_t  isqrt2      = 1/sqrt(2) * (1<<isqrt_scale);
     int runlen = 0;
     for (int i = 0; i < dct_th && runlen < 16; i++) {
       const auto v = zz[i][0];
       const auto u = zz[i][1];
 
       // rest of dct and quantize
-      int32_t sq =
-        (u && v) ? (int32_t)sum_acc[x_mcu][i]          >> (costable::scale+2+qtable[v][u]) :
-        (u || v) ? (int32_t)(sum_acc[x_mcu][i]*isqrt2) >> (costable::scale+2+qtable[v][u]+isqrt_scale) :
-                   (int32_t)sum_acc[x_mcu][i]          >> (costable::scale+3+qtable[v][u]);
+      int32_t sq = sum_acc[x_mcu][i] >> (costable::scale + 2 + qtable[v][u]);
+
       if(sq<0) sq++;
-      // equivalent to:
-      //double sq =
-      //  0.25 * sum_acc[x_mcu][i] * (
-      //      (u && v) ? 1.0    :
-      //      (u || v) ? isqrt2 : 0.5);
-      //sq /= (1<<qtable[v][u]);
       assert(-256<=sq && sq<256);
 
       // huffman encode
