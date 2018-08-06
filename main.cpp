@@ -92,26 +92,17 @@ struct zigzag {
   }
 };
 
-// cos((2*x+1)*u*PI/16)
-struct costable {
-  constexpr static double PI = 3.141592653589793;
-  constexpr static int    scale = 7;
-  int8_t v[8][8];
-  constexpr costable() : v() {
-    for (int j = 0; j < 8; j++)
-    for (int i = 0; i < 8; i++) {
-      int16_t tmp = cos((2*i+1)*j*PI/16) * (1<<scale);
-      v[j][i] = tmp==128 ? 127 : tmp;
-    }
-  }
-};
-
 template<int dct_th>
 struct dct_costable {
-  int8_t    table[dct_th][8][8];
+private:
+  constexpr static double PI = 3.141592653589793;
+  constexpr double cos_expr(int u, int x) {
+    return cos((2*x+1)*u*PI/16);
+  }
+public:
+  constexpr static int    scale = 7;
+  int8_t                  table[dct_th][8][8];
   constexpr dct_costable() : table() {
-    constexpr auto  costblc = costable();
-    const     auto  costbl  = costblc.v;
     constexpr auto  zzc     = zigzag();
     const     auto  zz      = zzc.walk;
     for (int i = 0; i < dct_th; i++) {
@@ -119,13 +110,13 @@ struct dct_costable {
       const auto u = zz[i][1];
       for (int y = 0; y < 8; y++)
       for (int x = 0; x < 8; x++) {
-        int16_t tmp = costbl[v][y] * costbl[u][x];
+        double tmp = cos_expr(v,y) * cos_expr(u,x);
         tmp *=
           (u && v) ?  1.0        :
           (u || v) ?  1/sqrt(2)  :
                       0.5;
-        tmp >>= costable::scale;
-        table[i][y][x] = tmp>=0 ? tmp : tmp+1;
+        tmp *= 1<<scale;
+        table[i][y][x] = tmp;
       }
     }
   }
@@ -276,7 +267,7 @@ public:
       const auto u = zz[i][1];
 
       // rest of dct and quantize
-      int32_t sq = sum_acc[x_mcu][i] >> (costable::scale + 2 + qtable[v][u]);
+      int32_t sq = sum_acc[x_mcu][i] >> (dcost.scale + 2 + qtable[v][u]);
 
       if(sq<0) sq++;
       assert(-256<=sq && sq<256);
