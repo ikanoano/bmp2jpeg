@@ -320,6 +320,9 @@ int main(int argc, char const* argv[]) {
       argc==2 ? "/tmp/out.jpg" : "/tmp/out.mjpg",
       ios::out | ios::binary | ios::trunc);
   if(!jpeg.is_open()) {cout << "dame" << endl; return 4;}
+  constexpr int bsize = 8*1024*1024;
+  char* bigbuf = new char[bsize];
+  jpeg.rdbuf()->pubsetbuf(bigbuf, bsize);
 
   for (int i = 1; i < argc; i++) {
     cout << (i%10 ? "." : "*") << flush;
@@ -384,6 +387,7 @@ int main(int argc, char const* argv[]) {
     jpeg.write((char*)header.EOI, sizeof(header.EOI));
   }
 
+  delete[] bigbuf;
 
   return 0;
 }
