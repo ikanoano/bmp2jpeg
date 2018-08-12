@@ -92,6 +92,18 @@ struct zigzag {
   }
 };
 
+struct bitlen {
+  uint8_t table[512];
+  constexpr bitlen() : table() {
+    for (int j = -256; j < 256; j++) {
+      for (int i = 0; i < 15; i++) {
+        if(-(1<<i)<j && j<(1<<i)) {table[j & 0x1FF]=i; break;}
+      }
+    }
+  }
+  inline int lookup (const int16_t v) const { return table[v & 0x1FF]; }
+};
+
 template<int dct_th>
 struct dct_costable {
 private:
@@ -214,6 +226,7 @@ public:
   }
 };
 
+
 template<bool is_y, int dct_th>
 class component_encoder {
 private:
@@ -225,18 +238,6 @@ private:
   const uint8_t   (&qtable)[8][8]           = is_y ? qtable_y       : qtable_c;
   const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
   const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
-  static int bitlen (const int16_t v) {
-    static int lentable[512] = {0};
-    assert(-256 <= v && v < 256);
-    if(lentable[1]==0) {
-      for (int j = -256; j < 256; j++) {
-        for (int i = 0; i < 15; i++) {
-          if(-(1<<i)<j && j<(1<<i)) {lentable[j & 0x1FF]=i; break;}
-        }
-      }
-    }
-    return lentable[v & 0x1FF];
-  }
 public:
   component_encoder(int width) : h_mcu(width / 8) {assert(960>=h_mcu);}
   void encode(
@@ -266,6 +267,7 @@ public:
 
     static constexpr auto zzc = zigzag();
     static constexpr auto zz  = zzc.walk;
+    static constexpr auto bl  = bitlen();
     int runlen = 0;
     for (int i = 0; i < dct_th && runlen < 16; i++) {
       const auto v = zz[i][0];
@@ -283,7 +285,7 @@ public:
         const int8_t  ac = sq;
         if(ac==0) { runlen++; continue; }
         // ac is nonzero
-        const int abl = bitlen(ac);
+        const int abl = bl.lookup(ac);
         assert(abl>0);
         assert(runlen<16);
         bs.append(ac_hufftable[runlen][abl]);
@@ -293,7 +295,7 @@ public:
         // dc
         const int8_t  dc  = sq;
         const int16_t ddc = dc - last_dc;
-        const int     dbl = bitlen(ddc);
+        const int     dbl = bl.lookup(ddc);
         bs.append(dc_hufftable[dbl]);
         bs.append(dbl, ddc<0 ? ddc-1 : ddc);
         last_dc = dc;
