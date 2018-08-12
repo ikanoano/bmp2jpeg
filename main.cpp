@@ -226,11 +226,16 @@ private:
   const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
   const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
   static int bitlen (const int16_t v) {
+    static int lentable[512] = {0};
     assert(-256 <= v && v < 256);
-    for (int i = 0; i < 15; i++) {
-      if(-(1<<i)<v && v<(1<<i)) return  i;
+    if(lentable[1]==0) {
+      for (int j = -256; j < 256; j++) {
+        for (int i = 0; i < 15; i++) {
+          if(-(1<<i)<j && j<(1<<i)) {lentable[j & 0x1FF]=i; break;}
+        }
+      }
     }
-    assert(0 && "invalid bitlen");
+    return lentable[v & 0x1FF];
   }
 public:
   component_encoder(int width) : h_mcu(width / 8) {assert(960>=h_mcu);}
