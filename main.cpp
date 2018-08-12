@@ -208,7 +208,7 @@ struct dsp {
 private:
   int32_t acc_Z;
 public:
-  int32_t calc(int16_t A, int8_t B, const int32_t* Z, bool load_Z) {
+  inline int32_t calc(int16_t A, int8_t B, const int32_t* Z, bool load_Z) {
     acc_Z = A * B + (load_Z ? *Z : acc_Z);
     return acc_Z;
   }
@@ -226,6 +226,7 @@ private:
   const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
   const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
   static int bitlen (const int16_t v) {
+    assert(-256 <= v && v < 256);
     for (int i = 0; i < 15; i++) {
       if(-(1<<i)<v && v<(1<<i)) return  i;
     }
@@ -247,8 +248,7 @@ public:
       int32_t dtmp = dspi[i].calc(
         sxy,
         dcost.table[i][y_in_mcu][x_in_mcu],
-        //costbl[v][y_in_mcu] * costbl[u][x_in_mcu],
-        x_in_mcu==0 && y_in_mcu>0 ? &(sum_acc[x_mcu][i]) : &zero,
+        y_in_mcu>0 ? &(sum_acc[x_mcu][i]) : &zero,
         x_in_mcu==0
       );
       if(x_in_mcu<7) continue;
@@ -259,8 +259,8 @@ public:
     if(y_in_mcu<7 || x_in_mcu<7) return;
     //printf("mcu[%3d] is filled\n", x_mcu);
 
-    static constexpr auto     zzc         = zigzag();
-    static constexpr auto     zz          = zzc.walk;
+    static constexpr auto zzc = zigzag();
+    static constexpr auto zz  = zzc.walk;
     int runlen = 0;
     for (int i = 0; i < dct_th && runlen < 16; i++) {
       const auto v = zz[i][0];
@@ -270,12 +270,12 @@ public:
       int32_t sq = sum_acc[x_mcu][i] >> (dcost.scale + 2 + qtable[v][u]);
 
       if(sq<0) sq++;
-      assert(-256<=sq && sq<256);
+      assert(-128<=sq && sq<128);
 
       // huffman encode
       if(u || v) {
         // ac
-        const int16_t ac = sq;
+        const int8_t  ac = sq;
         if(ac==0) { runlen++; continue; }
         // ac is nonzero
         const int abl = bitlen(ac);
@@ -286,9 +286,9 @@ public:
         runlen = 0;
       } else {
         // dc
-        const int16_t   dc  = sq;
-        const int16_t   ddc = dc - last_dc;
-        const int dbl = bitlen(ddc);
+        const int8_t  dc  = sq;
+        const int16_t ddc = dc - last_dc;
+        const int     dbl = bitlen(ddc);
         bs.append(dc_hufftable[dbl]);
         bs.append(dbl, ddc<0 ? ddc-1 : ddc);
         last_dc = dc;
