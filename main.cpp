@@ -191,8 +191,8 @@ private:
   ofstream& o;
 public:
   bitstream(ofstream& out) : o(out) {}
-  void append(const int len, const uint32_t val) {
-    assert(0<=len && len<=32 && len_acc<8);
+  void append(const int len, const uint16_t val) {
+    assert(0<=len && len<=16 && len_acc<8);
     if(len <= 0) return;
     int rshift = len - (8 - len_acc);
     uint8_t valmask = ~(0xFF<<(8-len_acc));
@@ -220,7 +220,7 @@ struct dsp {
 private:
   int32_t acc_Z;
 public:
-  inline int32_t calc(int16_t A, int8_t B, const int32_t* Z, bool load_Z) {
+  inline int32_t calc(int8_t A, int8_t B, const int32_t* Z, bool load_Z) {
     acc_Z = A * B + (load_Z ? *Z : acc_Z);
     return acc_Z;
   }
@@ -246,7 +246,7 @@ public:
     assert(x_mcu < h_mcu);
 
     // level shift
-    const int16_t sxy = (int16_t)pix - 128;
+    const int8_t sxy = (int16_t)pix - 128;
 
     // dct
     for (int i = 0; i < dct_th; i++) {
