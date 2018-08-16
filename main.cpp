@@ -232,21 +232,21 @@ class component_encoder {
 private:
   int16_t                 last_dc = 0;
   const int               h_mcu;
-  int32_t                 sum_acc[960][dct_th];
+  int32_t                 sum_acc[256][dct_th];
   dsp                     dspi[dct_th];
   static constexpr auto   dcost             = dct_costable<dct_th>();
   const uint8_t   (&qtable)[8][8]           = is_y ? qtable_y       : qtable_c;
   const uint16_t  (&dc_hufftable)[12][2]    = is_y ? dc_y_hufftable : dc_c_hufftable;
   const uint16_t  (&ac_hufftable)[16][11][2]= is_y ? ac_y_hufftable : ac_c_hufftable;
 public:
-  component_encoder(int width) : h_mcu(width / 8) {assert(960>=h_mcu);}
+  component_encoder(int width) : h_mcu(width / 8) {assert(256>=h_mcu);}
   void encode(
       const uint8_t pix, bitstream& bs,
       int x_mcu, int y_in_mcu, int x_in_mcu) {
     assert(x_mcu < h_mcu);
 
     // level shift
-    const int8_t sxy = (int16_t)pix - 128;
+    const int8_t sxy = pix - 128;
 
     // dct
     for (int i = 0; i < dct_th; i++) {
