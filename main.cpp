@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cmath>
 #include <functional>
+#include <iomanip>
 #include "consts.hpp"
 using namespace std;
 
@@ -356,6 +357,30 @@ int main(int argc, char const* argv[]) {
       }
       const int w3 = bh.data.bcWidth*3*scale;
       line = line + w3 + padnum(w3,4);
+    }
+
+    // output bmp in frame format hex
+    constexpr int HF=88, HS=44, HB=148, VF=4, VS=5, VB=36;
+    const int Hvisible = bh.data.bcWidth, Vvisible = bh.data.bcHeight;
+    ofstream frame("/tmp/frame.hex", ios::out | ios::trunc);
+    bool  hsync, vsync, pvalid;
+    YCbCr pix = plane[0][0];
+    uint32_t  heex;
+    for (int v = 0; v < VF + VS + VB + Vvisible; v++) {
+      vsync = (VF <= v) && (v < VF + VS);
+      for (int h = 0; h < Hvisible + HF + HS + HB; h++) {
+        pvalid = (h < Hvisible) && (VF + VS + VB <= v);
+        if(pvalid) pix = plane[v - (VF + VS + VB)][h];
+        hsync = (Hvisible + HF) <= h && h < (Hvisible + HF + HS);
+        heex =
+          (vsync ? 1<<26 : 0) |
+          (hsync ? 1<<25 : 0) |
+          (pvalid? 1<<24 : 0) |
+          ((uint32_t)pix.Y<<16) |
+          ((uint32_t)pix.Cb<<8) |
+          ((uint32_t)pix.Cr);
+        frame << hex << setfill('0') << setw(7) << heex << endl;
+      }
     }
 
     // padding
