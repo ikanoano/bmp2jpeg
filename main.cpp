@@ -360,7 +360,7 @@ int main(int argc, char const* argv[]) {
     }
 
     // output bmp in frame format hex
-    constexpr int HF=88, HS=44, HB=148, VF=4, VS=5, VB=36;
+    constexpr int HF=88, HS=44, HB=148, VF=4, VS=5, VB=3;//36;
     const int Hvisible = bh.data.bcWidth, Vvisible = bh.data.bcHeight;
     ofstream frame("/tmp/frame.hex", ios::out | ios::trunc);
     bool  hsync, vsync, pvalid;
